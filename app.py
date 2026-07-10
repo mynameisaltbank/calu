@@ -3,20 +3,16 @@ import datetime
 import sqlite3
 import json
 import requests
+import base64
 from flask import Flask, render_template, request, jsonify, send_file
-import google.generativeai as genai
 import pandas as pd
 
 app = Flask(__name__)
 
-# Configuration (Railway environment variables or fallback)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
-LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "YOUR_LINE_NOTIFY_TOKEN")
+# Configuration (Railway environment variables)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "")
 DB_PATH = "nutrition_tracker.db"
-
-# Configure Gemini
-os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 # Initialize Database
 def init_db():
@@ -50,16 +46,18 @@ def scan_food():
         return jsonify({"error": "No image file provided"}), 400
         
     image_file = request.files['image']
+    image_content_type = image_file.content_type
     image_data = image_file.read()
     
-    # Target values (Example for 70kg male targeting ~140g protein)
-    # In production, these can be set per user profile
     PROTEIN_TARGET = 140.0 
+    
+    # แปลงรูปภาพเป็น Base64 สำหรับส่งผ่าน REST API ของ Google
+    base64_image = base64.b64encode(image_data).decode('utf-8')
     
     prompt = """
     You are an expert nutritionist AI. Analyze this Thai food image and estimate its macronutrients (Protein, Carbs, Fat) and Total Calories.
     Be mindful of hidden oils in Thai stir-fried or deep-fried dishes. 
-    Respond ONLY with a valid JSON object matching this structure:
+    Respond ONLY with a valid JSON object matching this structure (No markdown fences like ```json):
     {
       "mealName": "Name of the dish in Thai",
       "calories": 120.0,
@@ -70,23 +68,44 @@ def scan_food():
     }
     """
     
+    # ยิงเข้า REST API โดยตรงเพื่อเลี่ยงปัญหาไลบรารีพัง
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {
+                    "inlineData": {
+                        "mimeType": image_content_type,
+                        "data": base64_image
+                    }
+                }
+            ]
+        }]
+    }
+    
     try:
-        model = genai.GenerativeModel(model_name='gemini-2.5-flash')
-        response = model.generate_content([
-            prompt,
-            {"mime_type": image_file.content_type, "data": image_data}
-        ])
+        response = requests.post(url, headers=headers, json=payload)
+        response_json = response.json()
         
-        # Clean response text to ensure proper JSON parsing
-        text = response.text.strip()
-        if text.startswith("```json"):
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif text.startswith("```"):
-            text = text.split("```")[1].split("```")[0].strip()
+        # ดักจับ Error จากทาง Google Direct API
+        if "error" in response_json:
+            return jsonify({"error": f"Google API Error: {response_json['error']['message']}"}), 400
             
-        nutrition_data = json.loads(text)
+        # ดึง Text ผลลัพธ์ออกมา
+        text_result = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
         
-        # Save to SQLite Database
+        # คลีนฟอร์แมตหาก AI เผลอใส่โครงสร้างครอบสัญลักษณ์โค้ดมา
+        if text_result.startswith("```json"):
+            text_result = text_result.split("```json")[1].split("```")[0].strip()
+        elif text_result.startswith("```"):
+            text_result = text_result.split("```")[1].split("```")[0].strip()
+            
+        nutrition_data = json.loads(text_result)
+        
+        # บันทึกลง SQLite
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
@@ -98,17 +117,15 @@ def scan_food():
             nutrition_data['protein'], 
             nutrition_data['carbs'], 
             nutrition_data['fat'], 
-            text
+            text_result
         ))
         conn.commit()
         
-        # Calculate daily total so far to check if protein target is met
         today_str = datetime.date.today().strftime('%Y-%m-%d')
         cursor.execute("SELECT SUM(protein) FROM daily_logs WHERE date = ?", (today_str,))
         total_protein_today = cursor.fetchone()[0] or 0.0
         conn.close()
         
-        # Send LINE Notification
         send_line_notification(nutrition_data, total_protein_today, PROTEIN_TARGET)
         
         return jsonify({
@@ -119,10 +136,10 @@ def scan_food():
         })
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"System Exception: {str(e)}"}), 500
 
 def send_line_notification(meal_data, current_total, target):
-    if not LINE_NOTIFY_TOKEN or LINE_NOTIFY_TOKEN == "YOUR_LINE_NOTIFY_TOKEN":
+    if not LINE_NOTIFY_TOKEN or LINE_NOTIFY_TOKEN == "YOUR_LINE_NOTIFY_TOKEN" or LINE_NOTIFY_TOKEN == "":
         return
         
     remaining = max(0.0, target - current_total)
@@ -141,7 +158,7 @@ def send_line_notification(meal_data, current_total, target):
     else:
         message += f"⚠️ วันนี้โปรตีนยังขาดอีก {remaining:.1f} กรัม อย่าลืมเติมเวย์โปรตีนหรือไข่ต้มนะครับ! 🥚🥤"
         
-    url = "https://notify-api.line.me/api/notify"
+    url = "[https://notify-api.line.me/api/notify](https://notify-api.line.me/api/notify)"
     headers = {"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"}
     data = {"message": message}
     try:
@@ -180,4 +197,4 @@ def export_excel():
     return send_file(filename, as_attachment=True)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=False)

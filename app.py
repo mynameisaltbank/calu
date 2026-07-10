@@ -17,6 +17,7 @@ DB_PATH = "nutrition_tracker.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # 1. ตารางบันทึกสารอาหารเดิม
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +29,18 @@ def init_db():
             carbs REAL,
             fat REAL,
             raw_json TEXT
+        )
+    ''')
+    # 2. ตารางบันทึกการทำ IF เพิ่มเติมเพื่อจัดช่วงเวลาการกิน
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS if_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT DEFAULT (date('now', 'localtime')),
+            fast_start TEXT,
+            fast_end TEXT,
+            eat_start TEXT,
+            eat_end TEXT,
+            if_type TEXT DEFAULT '16:8'
         )
     ''')
     conn.commit()
@@ -42,7 +55,7 @@ def index():
 @app.route('/api/scan', methods=['POST'])
 def scan_food():
     if not GEMINI_API_KEY:
-        return jsonify({"error": "ไม่พบ API Key ในระบบกรุณาเช็กแท็บ Variables บน Railway"}), 400
+        return jsonify({"error": "ไม่พบ API Key ในระบบ กรุณาเช็กแท็บ Variables บน Railway"}), 400
 
     if 'image' not in request.files:
         return jsonify({"error": "No image file provided"}), 400
@@ -54,21 +67,39 @@ def scan_food():
     PROTEIN_TARGET = 140.0 
     base64_image = base64.b64encode(image_data).decode('utf-8')
     
-    prompt = """
-    You are an expert nutritionist AI. Analyze this Thai food image and estimate its macronutrients (Protein, Carbs, Fat) and Total Calories.
-    Be mindful of hidden oils in Thai stir-fried or deep-fried dishes. 
+    # ดึงประวัติอาหารของวันนี้มาให้ AI วิเคราะห์ประกอบการแนะนำ
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT meal_name, protein, calories FROM daily_logs WHERE date = ?", (today_str,))
+    history_rows = cursor.fetchall()
+    conn.close()
+    
+    history_context = ""
+    if history_rows:
+        history_context = "Today the user already ate: " + ", ".join([f"{r[0]} (P:{r[1]}g, Cal:{r[2]})" for r in history_rows])
+
+    # อัปเดต Prompt ให้ AI ทำงานฉลาดขึ้น มีการคำนวณ แนะนำอาหาร และวิเคราะห์การจัดสรรโควตา
+    prompt = f"""
+    You are an expert sports nutritionist and diet coach. Analyze this Thai food image.
+    Estimate macronutrients (Protein, Carbs, Fat) and Total Calories.
+    
+    Context: {history_context}
+    The user's daily protein target is {PROTEIN_TARGET}g.
+    
+    Provide your analysis and tailored advice in Thai based on their target.
     Respond ONLY with a valid JSON object matching this structure (No markdown fences like ```json):
-    {
-      "mealName": "Name of the dish in Thai",
+    {{
+      "mealName": "ชื่ออาหารภาษาไทย",
       "calories": 120.0,
       "protein": 15.0,
       "carbs": 20.0,
       "fat": 8.0,
-      "explanation": "Brief explanation in Thai why you gave these values"
-    }
+      "explanation": "อธิบายสั้นๆ เกี่ยวกับสารอาหารในจานนี้",
+      "aiAdvice": "คำแนะนำอัจฉริยะ: วิเคราะห์ว่ามื้อนี้ดีต่อเป้าหมายโปรตีน {PROTEIN_TARGET}g ไหม และแนะนำอาหารเมนูถัดไปที่ควรทานเพิ่มในวันนี้เพื่อให้สารอาหารครบถ้วนตามเป้า"
+    }}
     """
     
-    # ใช้ Endpoint มาตรฐานสำหรับโมเดลหลักในปัจจุบัน ป้องกันปัญหาโมเดลเก่าโดนปิดกั้น
     url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     
@@ -102,91 +133,11 @@ def scan_food():
             
         nutrition_data = json.loads(text_result)
         
+        # บันทึกสารอาหารลงฐานข้อมูล
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO daily_logs (meal_name, calories, protein, carbs, fat, raw_json)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            nutrition_data['mealName'], 
-            nutrition_data['calories'], 
-            nutrition_data['protein'], 
-            nutrition_data['carbs'], 
-            nutrition_data['fat'], 
-            text_result
-        ))
-        conn.commit()
-        
-        today_str = datetime.date.today().strftime('%Y-%m-%d')
-        cursor.execute("SELECT SUM(protein) FROM daily_logs WHERE date = ?", (today_str,))
-        total_protein_today = cursor.fetchone()[0] or 0.0
-        conn.close()
-        
-        send_line_notification(nutrition_data, total_protein_today, PROTEIN_TARGET)
-        
-        return jsonify({
-            "status": "success",
-            "data": nutrition_data,
-            "total_protein_today": total_protein_today,
-            "target_protein": PROTEIN_TARGET
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
-
-def send_line_notification(meal_data, current_total, target):
-    if not LINE_NOTIFY_TOKEN:
-        return
-    remaining = max(0.0, target - current_total)
-    message = (
-        f"\n🍽️ บันทึกเมนูอาหารเรียบร้อย!\n"
-        f"เมนู: {meal_data['mealName']}\n"
-        f"🔥 พลังงาน: {meal_data['calories']} kcal\n"
-        f"💪 โปรตีนมื้อนี้: {meal_data['protein']} กรัม\n"
-        f"----------------------\n"
-        f"📊 รวมวันนี้กินโปรตีนไปแล้ว: {current_total:.1f} / {target} กรัม\n"
-    )
-    if current_total >= target:
-        message += "🎉 ยินดีด้วยครับ! วันนี้คุณกินโปรตีนถึงเป้าหมายแล้ว! 🦁"
-    else:
-        message += f"⚠️ วันนี้โปรตีนยังขาดอีก {remaining:.1f} กรัม อย่าลืมเติมสารอาหารให้ครบนะครับ! 🥚"
-        
-    url = "[https://notify-api.line.me/api/notify](https://notify-api.line.me/api/notify)"
-    headers = {"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"}
-    data = {"message": message}
-    try:
-        requests.post(url, headers=headers, data=data)
-    except Exception:
-        pass
-
-@app.route('/api/dashboard')
-def dashboard_data():
-    today_str = datetime.date.today().strftime('%Y-%m-%d')
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT SUM(calories), SUM(protein), SUM(carbs), SUM(fat) FROM daily_logs WHERE date = ?", (today_str,))
-    row = cursor.fetchone()
-    
-    cursor.execute("SELECT id, date, time, meal_name, calories, protein FROM daily_logs WHERE date = ? ORDER BY id DESC", (today_str,))
-    meals = [{"id": r[0], "time": r[2][:5], "name": r[3], "calories": r[4], "protein": r[5]} for r in cursor.fetchall()]
-    conn.close()
-    
-    return jsonify({
-        "calories": row[0] or 0,
-        "protein": row[1] or 0,
-        "carbs": row[2] or 0,
-        "fat": row[3] or 0,
-        "meals": meals
-    })
-
-@app.route('/api/export-excel')
-def export_excel():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT date, time, meal_name, calories, protein, carbs, fat FROM daily_logs ORDER BY id DESC", conn)
-    conn.close()
-    filename = "nutrition_history.xlsx"
-    df.to_excel(filename, index=False, sheet_name="ประวัติการทานอาหาร")
-    return send_file(filename, as_attachment=True)
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=False)
+            nutrition_data

@@ -15,7 +15,8 @@ LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "YOUR_LINE_NOTIFY_TOKEN"
 DB_PATH = "nutrition_tracker.db"
 
 # Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 # Initialize Database
 def init_db():
@@ -70,7 +71,7 @@ def scan_food():
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel(model_name='gemini-2.5-flash')
         response = model.generate_content([
             prompt,
             {"mime_type": image_file.content_type, "data": image_data}

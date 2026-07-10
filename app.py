@@ -70,7 +70,7 @@ def scan_food():
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-pro')
         response = model.generate_content([
             prompt,
             {"mime_type": image_file.content_type, "data": image_data}

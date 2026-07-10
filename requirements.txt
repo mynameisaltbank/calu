@@ -1,1 +1,6 @@
-
+flask
+google-generativeai
+pandas
+openpyxl
+requests
+gunicorn

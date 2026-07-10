@@ -10,8 +10,8 @@ import pandas as pd
 app = Flask(__name__)
 
 # Configuration (Railway environment variables)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "").strip()
 DB_PATH = "nutrition_tracker.db"
 
 # Initialize Database

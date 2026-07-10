@@ -9,12 +9,11 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# ดึงค่าอย่างปลอดภัยจากแท็บ Variables บน Railway 
+# ดึงค่าความปลอดภัยจาก Railway Variables
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "").strip()
 DB_PATH = "nutrition_tracker.db"
 
-# Initialize Database
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -43,7 +42,7 @@ def index():
 @app.route('/api/scan', methods=['POST'])
 def scan_food():
     if not GEMINI_API_KEY:
-        return jsonify({"error": "ไม่พบกุญแจเชื่อมต่อระบบ! กรุณาตรวจสอบแท็บ Variables บน Railway"}), 400
+        return jsonify({"error": "ไม่พบ API Key ในระบบกรุณาเช็กแท็บ Variables บน Railway"}), 400
 
     if 'image' not in request.files:
         return jsonify({"error": "No image file provided"}), 400
@@ -53,8 +52,6 @@ def scan_food():
     image_data = image_file.read()
     
     PROTEIN_TARGET = 140.0 
-    
-    # แปลงรูปภาพเป็น Base64 สำหรับส่งผ่าน REST API
     base64_image = base64.b64encode(image_data).decode('utf-8')
     
     prompt = """
@@ -71,8 +68,8 @@ def scan_food():
     }
     """
     
-    # เรียกใช้ผ่าน Google REST API endpoint โดยตรง
-    url = f"(https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){GEMINI_API_KEY}"
+    # ใช้ Endpoint มาตรฐานสำหรับโมเดลหลักในปัจจุบัน ป้องกันปัญหาโมเดลเก่าโดนปิดกั้น
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     
     payload = {
@@ -94,11 +91,10 @@ def scan_food():
         response_json = response.json()
         
         if "error" in response_json:
-            return jsonify({"error": f"Google API ตอบกลับว่า: {response_json['error']['message']}"}), 400
+            return jsonify({"error": f"Google API Error: {response_json['error']['message']}"}), 400
             
         text_result = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
         
-        # คลีนข้อมูลกรณี AI ใส่ Markdown ติดมา
         if text_result.startswith("```json"):
             text_result = text_result.split("```json")[1].split("```")[0].strip()
         elif text_result.startswith("```"):
@@ -106,7 +102,6 @@ def scan_food():
             
         nutrition_data = json.loads(text_result)
         
-        # บันทึกลง SQLite
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
@@ -137,14 +132,12 @@ def scan_food():
         })
         
     except Exception as e:
-        return jsonify({"error": f"เกิดข้อผิดพลาดภายในระบบ: {str(e)}"}), 500
+        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
 
 def send_line_notification(meal_data, current_total, target):
     if not LINE_NOTIFY_TOKEN:
         return
-        
     remaining = max(0.0, target - current_total)
-    
     message = (
         f"\n🍽️ บันทึกเมนูอาหารเรียบร้อย!\n"
         f"เมนู: {meal_data['mealName']}\n"
@@ -153,9 +146,8 @@ def send_line_notification(meal_data, current_total, target):
         f"----------------------\n"
         f"📊 รวมวันนี้กินโปรตีนไปแล้ว: {current_total:.1f} / {target} กรัม\n"
     )
-    
     if current_total >= target:
-        message += "🎉 ยินดีด้วยครับ! วันนี้คุณกินโปรตีนถึงเป้าหมายแล้ว เส้นผมและกล้ามเนื้อแข็งแรงแน่นอน! 🦁"
+        message += "🎉 ยินดีด้วยครับ! วันนี้คุณกินโปรตีนถึงเป้าหมายแล้ว! 🦁"
     else:
         message += f"⚠️ วันนี้โปรตีนยังขาดอีก {remaining:.1f} กรัม อย่าลืมเติมสารอาหารให้ครบนะครับ! 🥚"
         
@@ -192,7 +184,6 @@ def export_excel():
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT date, time, meal_name, calories, protein, carbs, fat FROM daily_logs ORDER BY id DESC", conn)
     conn.close()
-    
     filename = "nutrition_history.xlsx"
     df.to_excel(filename, index=False, sheet_name="ประวัติการทานอาหาร")
     return send_file(filename, as_attachment=True)

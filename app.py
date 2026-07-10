@@ -21,7 +21,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # ปรับปรุงให้ตารางรองรับโครงสร้างวันที่ที่ชัดเจน
+    # กำหนดโครงสร้างคอลัมน์เก็บข้อมูลวันที่ เวลา และสารอาหารหลักให้ชัดเจน
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,14 +69,14 @@ def scan_food():
     """
     
     try:
-        # บันทึกวันเวลา ณ โมเมนต์ที่ดำเนินการสแกนด้วย Python เพื่อความแม่นยำของ Timezone
+        # บันทึกวันเวลาตามจริง ณ โมเมนต์ที่กดสแกนด้วย Server Python
         now = datetime.datetime.now()
-        current_date = now.strftime('%Y-%m-%d') # YYYY-MM-DD
-        current_time = now.strftime('%H:%M:%S') # HH:MM:SS
+        current_date = now.strftime('%Y-%m-%d')
+        current_time = now.strftime('%H:%M:%S')
 
         model = genai.GenerativeModel('gemini-2.5-flash')
         
-        # เพิ่ม config บังคับให้ตอบกลับมาเป็น JSON เสมอเพื่อความปลอดภัย
+        # บังคับรูปแบบการตอบกลับเป็น JSON ป้องกัน Error ในขั้นตอนการ parse string
         response = model.generate_content(
             [prompt, {"mime_type": image_file.content_type, "data": image_data}],
             generation_config={"response_mime_type": "application/json"}
@@ -85,7 +85,7 @@ def scan_food():
         text = response.text.strip()
         nutrition_data = json.loads(text)
         
-        # Save to SQLite Database โดยใช้วันและเวลาที่ล็อกไว้จาก Python
+        # บันทึกลงระบบฐานข้อมูล
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
@@ -103,12 +103,12 @@ def scan_food():
         ))
         conn.commit()
         
-        # คำนวณโปรตีนรวมของวันนี้
+        # คำนวณปริมาณโปรตีนสะสมเฉพาะของวันนี้
         cursor.execute("SELECT SUM(protein) FROM daily_logs WHERE date = ?", (current_date,))
         total_protein_today = cursor.fetchone()[0] or 0.0
         conn.close()
         
-        # Send LINE Notification
+        # ส่งแจ้งเตือนผ่านทาง LINE Notify
         send_line_notification(nutrition_data, total_protein_today, PROTEIN_TARGET)
         
         return jsonify({
@@ -128,7 +128,6 @@ def send_line_notification(meal_data, current_total, target):
         return
         
     remaining = max(0.0, target - current_total)
-    
     message = (
         f"\n🍽️ บันทึกเมนูอาหารเรียบร้อย!\n"
         f"เมนู: {meal_data['mealName']}\n"
@@ -171,15 +170,13 @@ def dashboard_data():
         "meals": meals
     })
 
-# --- ส่วนที่เพิ่มเข้ามาใหม่สำหรับส่งข้อมูลไปทำกราฟรายวัน ---
+# --- ส่วนดึงข้อมูลสำหรับนำไปทำกราฟเปรียบเทียบสารอาหารแต่ละวัน ---
 @app.route('/api/chart-data')
 def chart_data():
-    """ ดึงข้อมูลสรุปยอดรวมของสารอาหารแต่ละวัน ย้อนหลัง 7 วันล่าสุด เพื่อส่งไปวาดกราฟ """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
-        # ดึงข้อมูลยอดรวมสารอาหารกลุ่มตามวัน ย้อนหลัง 7 วัน
+        # ดึงสรุปยอดรวมแบ่งรายวัน ย้อนหลังสูงสุด 7 วันที่มีประวัติการทาน
         cursor.execute('''
             SELECT date, 
                    SUM(calories) as total_cal, 
@@ -194,7 +191,7 @@ def chart_data():
         rows = cursor.fetchall()
         conn.close()
         
-        # จัดฟอร์แมตให้อยู่ในลำดับเวลาจากอดีตไปปัจจุบัน (Oldest to Newest) เพื่อให้กราฟเรียงสวยงาม
+        # เรียงข้อมูลกลับด้านให้อดีตไปหาปัจจุบันเพื่อให้พล็อตกราฟจากซ้ายไปขวาได้อย่างสวยงาม
         chart_list = []
         for r in reversed(rows):
             chart_list.append({

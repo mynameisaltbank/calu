@@ -74,7 +74,7 @@ def scan_food():
         current_date = now.strftime('%Y-%m-%d')
         current_time = now.strftime('%H:%M:%S')
 
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3.5-flash')
         
         # บังคับรูปแบบการตอบกลับเป็น JSON ป้องกัน Error ในขั้นตอนการ parse string
         response = model.generate_content(

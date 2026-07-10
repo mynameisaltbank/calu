@@ -1,4 +1,6 @@
-Flask==3.0.2
-requests==2.31.0
-pandas==2.2.1
-openpyxl==3.1.2
+flask
+google-generativeai
+pandas
+openpyxl
+requests
+gunicorn

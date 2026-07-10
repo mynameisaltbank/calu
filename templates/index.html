@@ -4,122 +4,262 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Protein & Nutrition Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        h1 { text-align: center; color: #2c3e50; font-size: 24px; margin-bottom: 25px; }
-        .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
-        .stat-box { background: #eef2f7; padding: 15px; border-radius: 8px; text-align: center; }
-        .stat-box.protein { background: #e3f2fd; border-left: 5px solid #2196f3; }
-        .stat-val { font-size: 22px; font-weight: bold; color: #1e88e5; }
-        .upload-section { border: 2px dashed #b0bec5; padding: 30px; text-align: center; border-radius: 8px; cursor: pointer; margin-bottom: 20px; transition: 0.3s; }
-        .upload-section:hover { border-color: #2196f3; background: #fafafa; }
-        button { width: 100%; background: #2196f3; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:hover { background: #1e88e5; }
-        .btn-excel { background: #4caf50; margin-top: 10px; }
-        .btn-excel:hover { background: #43a047; }
-        #preview { max-width: 100%; max-height: 250px; margin-top: 15px; border-radius: 6px; display: none; }
-        .meal-list { margin-top: 25px; }
-        .meal-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; }
-        #loading { display: none; text-align: center; font-weight: bold; color: #ff9800; margin: 15px 0; }
+        body { font-family: 'Inter', 'Chakra Petch', sans-serif; background-color: #f8fafc; }
     </style>
 </head>
-<body>
+<body class="text-slate-800 min-h-screen">
 
-<div class="container">
-    <h1>🍗 AI Protein Tracker</h1>
-    
-    <div class="dashboard">
-        <div class="stat-box protein">
-            <div>โปรตีนวันนี้</div>
-            <div class="stat-val" id="today-protein">0.0 กรัม</div>
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <span class="text-2xl">🍗</span>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r应用 bg-clip-text text-transparent from-orange-600 to-amber-500">AI Protein Tracker</h1>
+            </div>
+            <a href="/api/export-excel" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-md shadow-emerald-100 flex items-center space-x-1">
+                <span>📊</span> <span>ดาวน์โหลดประวัติ Excel</span>
+            </a>
         </div>
-        <div class="stat-box" style="border-left: 5px solid #ff9800;">
-            <div>แคลอรีวันนี้</div>
-            <div class="stat-val" style="color: #f57c00;" id="today-calories">0 kcal</div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">📸 สแกนอาหารมื้อนี้</h2>
+                
+                <form id="uploadForm" class="space-y-4">
+                    <label class="flex flex-col items-center justify-center w-full h-52 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition relative overflow-hidden group">
+                        <div id="uploadPlaceholder" class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
+                            <span class="text-3xl mb-2 group-hover:scale-110 transition-transform">🖼️</span>
+                            <p class="text-sm font-semibold text-slate-600">คลิกเพื่อถ่ายรูป หรือ เลือกรูปอาหาร</p>
+                            <p class="text-xs text-slate-400 mt-1">รองรับไฟล์ภาพ JPG, PNG</p>
+                        </div>
+                        <img id="imagePreview" class="hidden absolute inset-0 w-full h-full object-cover" />
+                        <input type="file" id="imageInput" name="image" accept="image/*" class="hidden" required />
+                    </label>
+
+                    <button type="submit" id="submitBtn" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-xl transition shadow-md shadow-orange-100 flex items-center justify-center space-x-2 cursor-pointer">
+                        <span>🚀</span> <span>ส่งให้ AI คำนวณสารอาหาร</span>
+                    </button>
+                </form>
+
+                <div id="loadingState" class="hidden mt-4 p-4 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-center text-sm font-medium animate-pulse">
+                    ⏳ AI กำลังวิเคราะห์รูปภาพและคำนวณสารอาหารอย่างระมัดระวัง...
+                </div>
+            </div>
+
+            <div id="resultCard" class="hidden bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all">
+                <h3 class="text-md font-bold text-slate-500 uppercase tracking-wider mb-2">ผลลัพธ์การสแกนล่าสุด</h3>
+                <div class="border-b border-slate-100 pb-3 mb-3">
+                    <h4 id="resMealName" class="text-xl font-bold text-slate-900">ชื่อเมนูอาหาร</h4>
+                    <p id="resDateTime" class="text-xs text-slate-400 mt-1">วันที่ดำเนินการ: --/--/---- เวลา: --:--</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-orange-50 p-3 rounded-xl text-center"><p class="text-xs text-orange-600 font-semibold">แคลอรี</p><p id="resCalories" class="text-lg font-bold text-orange-700">0 kcal</p></div>
+                    <div class="bg-blue-50 p-3 rounded-xl text-center"><p class="text-xs text-blue-600 font-semibold">โปรตีน</p><p id="resProtein" class="text-lg font-bold text-blue-700">0 กรัม</p></div>
+                    <div class="bg-amber-50 p-3 rounded-xl text-center"><p class="text-xs text-amber-600 font-semibold">คาร์บ</p><p id="resCarbs" class="text-lg font-bold text-amber-700">0 กรัม</p></div>
+                    <div class="bg-rose-50 p-3 rounded-xl text-center"><p class="text-xs text-rose-600 font-semibold">ไขมัน</p><p id="resFat" class="text-lg font-bold text-rose-700">0 กรัม</p></div>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl">
+                    <p class="text-xs font-bold text-slate-500 mb-1">📝 คำอธิบายจาก AI Nutritionist:</p>
+                    <p id="resExplanation" class="text-xs text-slate-600 leading-relaxed">...</p>
+                </div>
+            </div>
         </div>
-    </div>
 
-    <div class="upload-section" onclick="document.getElementById('imageInput').click()">
-        <p style="margin:0; color:#607d8b;">📸 กดเพื่อถ่ายรูป หรือ เลือกรูปอาหาร</p>
-        <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage(event)">
-        <img id="preview" alt="Food preview">
-    </div>
+        <div class="lg:col-span-2 space-y-6">
+            
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">🔥 แคลอรีวันนี้</p>
+                    <p id="dashCalories" class="text-2xl font-bold text-slate-900 mt-1">0 <span class="text-sm font-normal text-slate-500">kcal</span></p>
+                </div>
+                <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs border-l-4 border-l-blue-500">
+                    <p class="text-xs font-semibold text-blue-600 uppercase">💪 โปรตีนวันนี้</p>
+                    <p id="dashProtein" class="text-2xl font-bold text-slate-900 mt-1">0 / 140 <span class="text-sm font-normal text-slate-500">ก.</span></p>
+                </div>
+                <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs border-l-4 border-l-amber-500">
+                    <p class="text-xs font-semibold text-amber-600 uppercase">🌾 คาร์บวันนี้</p>
+                    <p id="dashCarbs" class="text-2xl font-bold text-slate-900 mt-1">0 <span class="text-sm font-normal text-slate-500">ก.</span></p>
+                </div>
+                <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs border-l-4 border-l-rose-500">
+                    <p class="text-xs font-semibold text-rose-600 uppercase">🥑 ไขมันวันนี้</p>
+                    <p id="dashFat" class="text-2xl font-bold text-slate-900 mt-1">0 <span class="text-sm font-normal text-slate-500">ก.</span></p>
+                </div>
+            </div>
 
-    <button id="uploadBtn" onclick="uploadImage()">🚀 สแกนและบันทึกสารอาหาร</button>
-    <div id="loading">⏳ AI กำลังวิเคราะห์และคำนวณสารอาหาร...</div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">📊 กราฟสรุปสารอาหารรายวัน (7 วันล่าสุด)</h2>
+                <div class="relative h-64 w-full">
+                    <canvas id="nutritionChart"></canvas>
+                </div>
+            </div>
 
-    <a href="/api/export-excel" style="text-decoration: none;"><button class="btn-excel">📊 ดาวน์โหลดประวัติเป็น Excel (.xlsx)</button></a>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">🍽️ มื้ออาหารบันทึกแล้ววันนี้</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-slate-400 text-xs uppercase font-semibold">
+                                <th class="py-3 px-2">เวลาสแกน</th>
+                                <th class="py-3 px-2">เมนูอาหาร</th>
+                                <th class="py-3 px-2 text-right">พลังงาน</th>
+                                <th class="py-3 px-2 text-right">โปรตีน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mealsTableBody" class="divide-y divide-slate-100 text-sm">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
 
-    <div class="meal-list">
-        <h3>🍽️ รายการอาหารวันนี้</h3>
-        <div id="mealsContainer"></div>
-    </div>
-</div>
+        </div>
+    </main>
 
-<script>
-    function previewImage(event) {
-        const reader = new FileReader();
-        reader.onload = function() {
-            const preview = document.getElementById('preview');
-            preview.src = reader.result;
-            preview.style.display = 'block';
-        }
-        reader.readAsDataURL(event.target.files[0]);
-    }
+    <script>
+        let nutritionChart = null;
 
-    async function loadDashboard() {
-        const res = await fetch('/api/dashboard');
-        const data = await res.json();
-        document.getElementById('today-protein').innerText = data.protein.toFixed(1) + ' กรัม';
-        document.getElementById('today-calories').innerText = data.calories.toFixed(0) + ' kcal';
-        
-        const container = document.getElementById('mealsContainer');
-        container.innerHTML = '';
-        if(data.meals.length === 0) {
-            container.innerHTML = '<p style="color:#999; font-size:14px;">ยังไม่มีการบันทึกอาหารในวันนี้</p>';
-        }
-        data.meals.forEach(m => {
-            container.innerHTML += `<div class="meal-item">
-                <span>⏰ ${m.time} - <b>${m.name}</b></span>
-                <span>💪 P: ${m.protein}g | 🔥 ${m.calories} kcal</span>
-            </div>`;
-        });
-    }
+        // ฟังก์ชันโหลดข้อมูล Dashboard และมื้ออาหารล่าสุดของวัน
+        async function fetchDashboard() {
+            const res = await fetch('/api/dashboard');
+            const data = await res.json();
+            
+            document.getElementById('dashCalories').innerHTML = `${data.calories.toFixed(1)} <span class="text-sm font-normal text-slate-500">kcal</span>`;
+            document.getElementById('dashProtein').innerHTML = `${data.protein.toFixed(1)} / 140 <span class="text-sm font-normal text-slate-500">ก.</span>`;
+            document.getElementById('dashCarbs').innerHTML = `${data.carbs.toFixed(1)} <span class="text-sm font-normal text-slate-500">ก.</span>`;
+            document.getElementById('dashFat').innerHTML = `${data.fat.toFixed(1)} <span class="text-sm font-normal text-slate-500">ก.</span>`;
 
-    async function uploadImage() {
-        const fileInput = document.getElementById('imageInput');
-        if(fileInput.files.length === 0) {
-            alert('กรุณาเลือกรูปภาพก่อนครับ!');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('image', fileInput.files[0]);
-        
-        document.getElementById('uploadBtn').style.display = 'none';
-        document.getElementById('loading').style.display = 'block';
-        
-        try {
-            const res = await fetch('/api/scan', { method: 'POST', body: formData });
-            const result = await res.json();
-            if(result.status === 'success') {
-                alert(`✨ สแกนสำเร็จ!\nเมนู: ${result.data.mealName}\nโปรตีน: ${result.data.protein}g`);
-                document.getElementById('preview').style.display = 'none';
-                fileInput.value = '';
-                loadDashboard();
+            const tbody = document.getElementById('mealsTableBody');
+            tbody.innerHTML = '';
+            if(data.meals.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-slate-400 text-xs">ยังไม่มีประวัติการทานของวันนี้</td></tr>`;
             } else {
-                alert('เกิดข้อผิดพลาด: ' + result.error);
+                data.meals.forEach(meal => {
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="py-3 px-2 font-medium text-slate-400">${meal.time} น.</td>
+                            <td class="py-3 px-2 font-bold text-slate-700">${meal.name}</td>
+                            <td class="py-3 px-2 text-right text-orange-600 font-semibold">${meal.calories} kcal</td>
+                            <td class="py-3 px-2 text-right text-blue-600 font-semibold">${meal.protein} ก.</td>
+                        </tr>
+                    `;
+                });
             }
-        } catch(e) {
-            alert('เชื่อมต่อเซิร์ฟเวอร์ล้มเหลว');
-        } finally {
-            document.getElementById('uploadBtn').style.display = 'block';
-            document.getElementById('loading').style.display = 'none';
         }
-    }
 
-    window.onload = loadDashboard;
-</script>
+        // ฟังก์ชันดึงประวัติมาวาดหรืออัปเดตกราฟ (สารอาหารหลักแยกสีรายวัน)
+        async function updateChart() {
+            const res = await fetch('/api/chart-data');
+            const result = await res.json();
+            
+            if (result.status !== 'success') return;
+            const dataList = result.chart_data;
+
+            const labels = dataList.map(item => item.date);
+            const proteinData = dataList.map(item => item.protein);
+            const carbsData = dataList.map(item => item.carbs);
+            const fatData = dataList.map(item => item.fat);
+
+            const ctx = document.getElementById('nutritionChart').getContext('2d');
+            
+            // ถ้าระบบเคยมีอ็อบเจกต์กราฟเก่าอยู่ ให้ล้างออกก่อนพล็อตค่าใหม่ป้องกันกราฟซ้อนซ้ำ
+            if (nutritionChart) {
+                nutritionChart.destroy();
+            }
+
+            nutritionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'โปรตีน (g)', data: proteinData, backgroundColor: '#3b82f6', borderRadius: 6 },
+                        { label: 'คาร์บ (g)', data: carbsData, backgroundColor: '#f59e0b', borderRadius: 6 },
+                        { label: 'ไขมัน (g)', data: fatData, backgroundColor: '#f43f5e', borderRadius: 6 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Inter' } } }
+                    }
+                }
+            });
+        }
+
+        // แสดงพรีวิวทันทีที่เลือกรูปภาพ
+        document.getElementById('imageInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    document.getElementById('imagePreview').src = event.target.result;
+                    document.getElementById('imagePreview').classList.remove('hidden');
+                    document.getElementById('uploadPlaceholder').classList.add('hidden');
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // ลอจิกการส่งฟอร์มสแกนอาหาร
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('imageInput');
+            if (fileInput.files.length === 0) return;
+
+            const formData = new FormData();
+            formData.append('image', fileInput.files[0]);
+
+            // เปิดแสดงสถานะ Loading
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('submitBtn').disabled = true;
+
+            try {
+                const res = await fetch('/api/scan', { method: 'POST', body: formData });
+                const result = await res.json();
+
+                if (result.status === 'success') {
+                    // จัดการแสดงผลลงในการ์ดผลลัพธ์ล่าสุด
+                    document.getElementById('resMealName').innerText = result.data.mealName;
+                    document.getElementById('resDateTime').innerText = `วันที่ดำเนินการ: ${result.scan_date} เวลา: ${result.scan_time} น.`;
+                    document.getElementById('resCalories').innerText = `${result.data.calories} kcal`;
+                    document.getElementById('resProtein').innerText = `${result.data.protein} กรัม`;
+                    document.getElementById('resCarbs').innerText = `${result.data.carbs} กรัม`;
+                    document.getElementById('resFat').innerText = `${result.data.fat} กรัม`;
+                    document.getElementById('resExplanation').innerText = result.data.explanation;
+                    
+                    document.getElementById('resultCard').classList.remove('hidden');
+
+                    // อัปเดตรีเฟรชหน้าบอร์ดสถิติและกราฟแบบ Realtime ทันที
+                    await fetchDashboard();
+                    await updateChart();
+                } else {
+                    alert('เกิดข้อผิดพลาด: ' + (result.error || 'ไม่สามารถประมวลผลได้'));
+                }
+            } catch (err) {
+                alert('การเชื่อมต่อล้มเหลว: ' + err.message);
+            } finally {
+                // ปิดสถานะ Loading
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('submitBtn').disabled = false;
+            }
+        });
+
+        // สั่งให้ดาวน์โหลดข้อมูลมาจัดแสดงตั้งแต่เปิดหน้าเว็บครั้งแรก
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchDashboard();
+            updateChart();
+        });
+    </script>
 </body>
 </html>

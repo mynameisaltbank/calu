@@ -7,6 +7,12 @@ from flask import Flask, render_template, request, jsonify, send_file
 import google.generativeai as genai
 import pandas as pd
 
+for m in genai.list_models():
+    if 'generateContent' in m.supported_generation_methods:
+        print(m.name)
+
+
+
 app = Flask(__name__)
 
 # Configuration (Railway environment variables or fallback)

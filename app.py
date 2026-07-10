@@ -9,7 +9,7 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# Configuration (Railway environment variables)
+# ดึงค่าอย่างปลอดภัยจากแท็บ Variables บน Railway 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "").strip()
 DB_PATH = "nutrition_tracker.db"
@@ -42,6 +42,9 @@ def index():
 
 @app.route('/api/scan', methods=['POST'])
 def scan_food():
+    if not GEMINI_API_KEY:
+        return jsonify({"error": "ไม่พบกุญแจเชื่อมต่อระบบ! กรุณาตรวจสอบแท็บ Variables บน Railway"}), 400
+
     if 'image' not in request.files:
         return jsonify({"error": "No image file provided"}), 400
         
@@ -51,7 +54,7 @@ def scan_food():
     
     PROTEIN_TARGET = 140.0 
     
-    # แปลงรูปภาพเป็น Base64 สำหรับส่งผ่าน REST API ของ Google
+    # แปลงรูปภาพเป็น Base64 สำหรับส่งผ่าน REST API
     base64_image = base64.b64encode(image_data).decode('utf-8')
     
     prompt = """
@@ -68,8 +71,8 @@ def scan_food():
     }
     """
     
-    # ยิงเข้า REST API โดยตรงเพื่อเลี่ยงปัญหาไลบรารีพัง
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # เรียกใช้ผ่าน Google REST API endpoint โดยตรง
+    url = f"(https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     
     payload = {
@@ -90,14 +93,12 @@ def scan_food():
         response = requests.post(url, headers=headers, json=payload)
         response_json = response.json()
         
-        # ดักจับ Error จากทาง Google Direct API
         if "error" in response_json:
-            return jsonify({"error": f"Google API Error: {response_json['error']['message']}"}), 400
+            return jsonify({"error": f"Google API ตอบกลับว่า: {response_json['error']['message']}"}), 400
             
-        # ดึง Text ผลลัพธ์ออกมา
         text_result = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
         
-        # คลีนฟอร์แมตหาก AI เผลอใส่โครงสร้างครอบสัญลักษณ์โค้ดมา
+        # คลีนข้อมูลกรณี AI ใส่ Markdown ติดมา
         if text_result.startswith("```json"):
             text_result = text_result.split("```json")[1].split("```")[0].strip()
         elif text_result.startswith("```"):
@@ -136,10 +137,10 @@ def scan_food():
         })
         
     except Exception as e:
-        return jsonify({"error": f"System Exception: {str(e)}"}), 500
+        return jsonify({"error": f"เกิดข้อผิดพลาดภายในระบบ: {str(e)}"}), 500
 
 def send_line_notification(meal_data, current_total, target):
-    if not LINE_NOTIFY_TOKEN or LINE_NOTIFY_TOKEN == "YOUR_LINE_NOTIFY_TOKEN" or LINE_NOTIFY_TOKEN == "":
+    if not LINE_NOTIFY_TOKEN:
         return
         
     remaining = max(0.0, target - current_total)
@@ -156,7 +157,7 @@ def send_line_notification(meal_data, current_total, target):
     if current_total >= target:
         message += "🎉 ยินดีด้วยครับ! วันนี้คุณกินโปรตีนถึงเป้าหมายแล้ว เส้นผมและกล้ามเนื้อแข็งแรงแน่นอน! 🦁"
     else:
-        message += f"⚠️ วันนี้โปรตีนยังขาดอีก {remaining:.1f} กรัม อย่าลืมเติมเวย์โปรตีนหรือไข่ต้มนะครับ! 🥚🥤"
+        message += f"⚠️ วันนี้โปรตีนยังขาดอีก {remaining:.1f} กรัม อย่าลืมเติมสารอาหารให้ครบนะครับ! 🥚"
         
     url = "[https://notify-api.line.me/api/notify](https://notify-api.line.me/api/notify)"
     headers = {"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"}
@@ -174,8 +175,8 @@ def dashboard_data():
     cursor.execute("SELECT SUM(calories), SUM(protein), SUM(carbs), SUM(fat) FROM daily_logs WHERE date = ?", (today_str,))
     row = cursor.fetchone()
     
-    cursor.execute("SELECT id, time, meal_name, calories, protein FROM daily_logs WHERE date = ? ORDER BY id DESC", (today_str,))
-    meals = [{"id": r[0], "time": r[1][:5], "name": r[2], "calories": r[3], "protein": r[4]} for r in cursor.fetchall()]
+    cursor.execute("SELECT id, date, time, meal_name, calories, protein FROM daily_logs WHERE date = ? ORDER BY id DESC", (today_str,))
+    meals = [{"id": r[0], "time": r[2][:5], "name": r[3], "calories": r[4], "protein": r[5]} for r in cursor.fetchall()]
     conn.close()
     
     return jsonify({

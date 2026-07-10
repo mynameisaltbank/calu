@@ -21,12 +21,11 @@ genai.configure(api_key=GEMINI_API_KEY)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # กำหนดโครงสร้างคอลัมน์เก็บข้อมูลวันที่ เวลา และสารอาหารหลักให้ชัดเจน
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            time TEXT,
+            date TEXT DEFAULT (date('now', 'localtime')),
+            time TEXT DEFAULT (time('now', 'localtime')),
             meal_name TEXT,
             calories REAL,
             protein REAL,
@@ -52,6 +51,8 @@ def scan_food():
     image_file = request.files['image']
     image_data = image_file.read()
     
+    # Target values (Example for 70kg male targeting ~140g protein)
+    # In production, these can be set per user profile
     PROTEIN_TARGET = 140.0 
     
     prompt = """
@@ -69,31 +70,28 @@ def scan_food():
     """
     
     try:
-        # บันทึกวันเวลาตามจริง ณ โมเมนต์ที่กดสแกนด้วย Server Python
-        now = datetime.datetime.now()
-        current_date = now.strftime('%Y-%m-%d')
-        current_time = now.strftime('%H:%M:%S')
-
         model = genai.GenerativeModel('gemini-3.5-flash')
+        response = model.generate_content([
+            prompt,
+            {"mime_type": image_file.content_type, "data": image_data}
+        ])
         
-        # บังคับรูปแบบการตอบกลับเป็น JSON ป้องกัน Error ในขั้นตอนการ parse string
-        response = model.generate_content(
-            [prompt, {"mime_type": image_file.content_type, "data": image_data}],
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
+        # Clean response text to ensure proper JSON parsing
         text = response.text.strip()
+        if text.startswith("```json"):
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif text.startswith("```"):
+            text = text.split("```")[1].split("```")[0].strip()
+            
         nutrition_data = json.loads(text)
         
-        # บันทึกลงระบบฐานข้อมูล
+        # Save to SQLite Database
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO daily_logs (date, time, meal_name, calories, protein, carbs, fat, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO daily_logs (meal_name, calories, protein, carbs, fat, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            current_date,
-            current_time,
             nutrition_data['mealName'], 
             nutrition_data['calories'], 
             nutrition_data['protein'], 
@@ -103,19 +101,18 @@ def scan_food():
         ))
         conn.commit()
         
-        # คำนวณปริมาณโปรตีนสะสมเฉพาะของวันนี้
-        cursor.execute("SELECT SUM(protein) FROM daily_logs WHERE date = ?", (current_date,))
+        # Calculate daily total so far to check if protein target is met
+        today_str = datetime.date.today().strftime('%Y-%m-%d')
+        cursor.execute("SELECT SUM(protein) FROM daily_logs WHERE date = ?", (today_str,))
         total_protein_today = cursor.fetchone()[0] or 0.0
         conn.close()
         
-        # ส่งแจ้งเตือนผ่านทาง LINE Notify
+        # Send LINE Notification
         send_line_notification(nutrition_data, total_protein_today, PROTEIN_TARGET)
         
         return jsonify({
             "status": "success",
             "data": nutrition_data,
-            "scan_date": current_date,
-            "scan_time": current_time,
             "total_protein_today": total_protein_today,
             "target_protein": PROTEIN_TARGET
         })
@@ -128,6 +125,7 @@ def send_line_notification(meal_data, current_total, target):
         return
         
     remaining = max(0.0, target - current_total)
+    
     message = (
         f"\n🍽️ บันทึกเมนูอาหารเรียบร้อย!\n"
         f"เมนู: {meal_data['mealName']}\n"
@@ -169,42 +167,6 @@ def dashboard_data():
         "fat": row[3] or 0,
         "meals": meals
     })
-
-# --- ส่วนดึงข้อมูลสำหรับนำไปทำกราฟเปรียบเทียบสารอาหารแต่ละวัน ---
-@app.route('/api/chart-data')
-def chart_data():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        # ดึงสรุปยอดรวมแบ่งรายวัน ย้อนหลังสูงสุด 7 วันที่มีประวัติการทาน
-        cursor.execute('''
-            SELECT date, 
-                   SUM(calories) as total_cal, 
-                   SUM(protein) as total_protein, 
-                   SUM(carbs) as total_carbs, 
-                   SUM(fat) as total_fat 
-            FROM daily_logs 
-            GROUP BY date 
-            ORDER BY date DESC 
-            LIMIT 7
-        ''')
-        rows = cursor.fetchall()
-        conn.close()
-        
-        # เรียงข้อมูลกลับด้านให้อดีตไปหาปัจจุบันเพื่อให้พล็อตกราฟจากซ้ายไปขวาได้อย่างสวยงาม
-        chart_list = []
-        for r in reversed(rows):
-            chart_list.append({
-                "date": r[0],
-                "calories": round(r[1], 1) if r[1] else 0,
-                "protein": round(r[2], 1) if r[2] else 0,
-                "carbs": round(r[3], 1) if r[3] else 0,
-                "fat": round(r[4], 1) if r[4] else 0
-            })
-            
-        return jsonify({"status": "success", "chart_data": chart_list})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/export-excel')
 def export_excel():
